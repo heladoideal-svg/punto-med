@@ -44,6 +44,8 @@ const MEDICOS_SEED = [
 
 // ─── CONSTANTES ──────────────────────────────────────────────────────────────────
 const PASSWORD_CONSULTORIO = import.meta.env.VITE_PASSWORD_CONSULTORIO || "puntomed2024";
+const DIRECCION = "San Martín 2281, Piso 6 · Posadas, Misiones";
+const MAPS_URL  = "https://maps.app.goo.gl/bveLkd2FEm6fWBLbA";
 const MONTH_NAMES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 const DAY_LABELS  = ["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"];
 const DAY_NAMES   = ["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
@@ -205,7 +207,7 @@ function PatientView({turnos,medicos,estudios,onBook,onCancel}){
       <h2 style={{color:C.success,margin:"0 0 6px",fontSize:"22px"}}>¡Turno confirmado!</h2>
       <p style={{color:C.slate,marginBottom:"20px",fontSize:"15px"}}>Te esperamos el <b>{formatDate(done.fecha)}</b> a las <b>{done.hora}</b></p>
       <Card style={{maxWidth:380,margin:"0 auto 24px",textAlign:"left"}}>
-        <Rw label="Paciente" val={done.nombre}/><Rw label="Médico" val={m?.nombre}/><Rw label="Estudio" val={`${e?.icon} ${e?.label}`}/><Rw label="Fecha" val={`${formatDate(done.fecha)} · ${done.hora}`}/><Rw label="Consultorio" val="Punto Med · Cardiología" last/>
+        <Rw label="Paciente" val={done.nombre}/><Rw label="Médico" val={m?.nombre}/><Rw label="Estudio" val={`${e?.icon} ${e?.label}`}/><Rw label="Fecha" val={`${formatDate(done.fecha)} · ${done.hora}`}/><Rw label="Consultorio" val={<a href={MAPS_URL} target="_blank" rel="noreferrer" style={{color:C.blue,textDecoration:"none"}}>{DIRECCION}</a>} last/>
       </Card>
       <p style={{color:C.slate,fontSize:"13px",marginBottom:"20px"}}>Recibirás un recordatorio por WhatsApp.</p>
       <Btn onClick={reset}>Sacar otro turno</Btn>
@@ -240,6 +242,13 @@ function PatientView({turnos,medicos,estudios,onBook,onCancel}){
       ))}
     </div>
     <button onClick={()=>setModo("misturno")} style={{width:"100%",padding:"12px",borderRadius:"10px",border:`1.5px solid ${C.border}`,background:"transparent",cursor:"pointer",color:C.slate,fontWeight:600,fontSize:"14px"}}>Ver / cancelar mis turnos →</button>
+    <a href={MAPS_URL} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",gap:"10px",marginTop:"12px",padding:"14px",borderRadius:"12px",border:`1.5px solid ${C.border}`,background:C.white,textDecoration:"none"}}>
+      <span style={{fontSize:"22px"}}>📍</span>
+      <div style={{flex:1}}>
+        <div style={{fontWeight:600,color:C.navy,fontSize:"14px"}}>{DIRECCION}</div>
+        <div style={{fontSize:"12px",color:C.blue,marginTop:"2px"}}>Ver en Google Maps →</div>
+      </div>
+    </a>
   </div>);
 
   if(modo==="medico"){
@@ -442,4 +451,3 @@ export default function App(){
     {toast&&<Toast msg={toast.msg} type={toast.type} onClose={()=>setToast(null)}/>}
   </div>);
 }
-
