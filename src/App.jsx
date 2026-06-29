@@ -24,6 +24,16 @@ async function dbDelete(table, id) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.${id}`, { method: "DELETE", headers: HEADERS });
   if (!res.ok) throw new Error(await res.text());
 }
+async function dbGetBloqueos() { return dbGet("bloqueos","order=fecha_desde"); }
+function estaBloquado(bloqueos, medicoId, fecha, hora) {
+  return bloqueos.some(b => {
+    if(b.medico_id && b.medico_id !== medicoId) return false;
+    if(fecha < b.fecha_desde || fecha > b.fecha_hasta) return false;
+    if(b.tipo === "dia_completo") return true;
+    if(b.hora_desde && b.hora_hasta && hora) return hora >= b.hora_desde && hora <= b.hora_hasta;
+    return false;
+  });
+}
 
 // ─── DATOS INICIALES (se usan solo si la BD está vacía) ─────────────────────────
 const ESTUDIOS_SEED = [
@@ -89,7 +99,7 @@ function StepTitle({n,total,label}){return <div style={{marginBottom:"16px"}}><d
 function Spinner(){return <div style={{display:"flex",alignItems:"center",justifyContent:"center",padding:"48px"}}><div style={{width:36,height:36,border:`3px solid ${C.border}`,borderTop:`3px solid ${C.blue}`,borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/><style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style></div>;}
 
 // ─── MINI CALENDAR ────────────────────────────────────────────────────────────────
-function MiniCalendar({selected,onSelect,turnos,medicoId,adminMode}){
+function MiniCalendar({selected,onSelect,turnos,medicoId,adminMode,bloqueos=[]}){
   const[cursor,setCursor]=useState(()=>{const d=new Date();d.setDate(1);return d;});
   const hoy=todayIso();
   const firstDay=new Date(cursor.getFullYear(),cursor.getMonth(),1).getDay();
@@ -97,7 +107,7 @@ function MiniCalendar({selected,onSelect,turnos,medicoId,adminMode}){
   const cells=[];for(let i=0;i<firstDay;i++)cells.push(null);for(let d=1;d<=dim;d++)cells.push(d);
   function iso(d){return `${cursor.getFullYear()}-${String(cursor.getMonth()+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;}
   function hasTurno(d){return turnos.some(t=>t.fecha===iso(d)&&t.estado!=="cancelado"&&(!medicoId||t.medico_id===medicoId));}
-  function isDis(d){if(adminMode)return false;const i=iso(d);const dow=new Date(i+"T12:00:00").getDay();return dow===0||dow===6||i<hoy;}
+  function isDis(d){if(adminMode)return false;const i=iso(d);const dow=new Date(i+"T12:00:00").getDay();if(dow===0||dow===6||i<hoy)return true;if(medicoId&&bloqueos)return estaBloquado(bloqueos,medicoId,i,null)&&bloqueos.some(b=>b.tipo==="dia_completo"&&(!b.medico_id||b.medico_id===medicoId)&&i>=b.fecha_desde&&i<=b.fecha_hasta);return false;}
   return(<div>
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"10px"}}>
       <button onClick={()=>setCursor(c=>new Date(c.getFullYear(),c.getMonth()-1,1))} style={{background:"none",border:"none",cursor:"pointer",fontSize:"20px",color:C.slate,padding:"4px 8px"}}>‹</button>
@@ -142,9 +152,9 @@ function MedicoCard({medico,selected,onClick,turnos,fecha,estudios}){
 }
 
 // ─── STEP FECHA/HORA ──────────────────────────────────────────────────────────────
-function StepFechaHora({medicoId,estudioId,selFecha,setSelFecha,selHora,setSelHora,turnos,medicos,estudios,onNext,onBack,stepN,totalSteps}){
+function StepFechaHora({medicoId,estudioId,selFecha,setSelFecha,selHora,setSelHora,turnos,medicos,estudios,bloqueos=[],onNext,onBack,stepN,totalSteps}){
   const mMap=Object.fromEntries(medicos.map(m=>[m.id,m]));const eMap=Object.fromEntries(estudios.map(e=>[e.id,e]));const m=mMap[medicoId];
-  const libres=selFecha?(()=>{const dow=dayOfWeek(selFecha);const todos=m?.horario[dow]||[];const ocu=turnos.filter(t=>t.medico_id===medicoId&&t.fecha===selFecha&&t.estado!=="cancelado").map(t=>t.hora);return todos.map(h=>({h,libre:!ocu.includes(h)}));})():[];
+  const libres=selFecha?(()=>{const dow=dayOfWeek(selFecha);const todos=m?.horario[dow]||[];const ocu=turnos.filter(t=>t.medico_id===medicoId&&t.fecha===selFecha&&t.estado!=="cancelado").map(t=>t.hora);return todos.map(h=>({h,libre:!ocu.includes(h)&&!estaBloquado(bloqueos||[],medicoId,selFecha,h)}));})():[];
   return(<div>
     <BtnBack onClick={onBack}/>
     <StepTitle n={stepN} total={totalSteps} label="Elegí fecha y horario"/>
@@ -152,7 +162,7 @@ function StepFechaHora({medicoId,estudioId,selFecha,setSelFecha,selHora,setSelHo
       <Av ini={m?.avatar||initials(m?.nombre||"")} size={32}/>
       <div style={{flex:1,fontSize:"13px"}}><span style={{fontWeight:700,color:C.navy}}>{m?.nombre}</span><span style={{color:C.slate}}> · {eMap[estudioId]?.icon} {eMap[estudioId]?.label}</span></div>
     </div>
-    <Card style={{marginBottom:"14px"}}><MiniCalendar selected={selFecha} onSelect={setSelFecha} turnos={turnos} medicoId={medicoId}/></Card>
+    <Card style={{marginBottom:"14px"}}><MiniCalendar selected={selFecha} onSelect={setSelFecha} turnos={turnos} medicoId={medicoId} bloqueos={bloqueos}/></Card>
     {selFecha&&<Card style={{marginBottom:"14px"}}>
       <div style={{fontWeight:700,color:C.navy,marginBottom:"10px",fontSize:"14px"}}>Horarios — {formatDate(selFecha)}</div>
       {libres.length===0?<p style={{color:C.slate,fontSize:"14px",margin:0}}>El médico no atiende este día.</p>
@@ -182,7 +192,7 @@ function StepDatos({form,setForm,onBack,onConfirm,resumen,stepN,totalSteps,savin
 }
 
 // ─── VISTA PACIENTE ───────────────────────────────────────────────────────────────
-function PatientView({turnos,medicos,estudios,onBook,onCancel}){
+function PatientView({turnos,medicos,estudios,bloqueos=[],onBook,onCancel}){
   const[modo,setModo]=useState(null);const[step,setStep]=useState(1);
   const[selMedico,setSelMedico]=useState(null);const[selEstudio,setSelEstudio]=useState(null);
   const[selFecha,setSelFecha]=useState(null);const[selHora,setSelHora]=useState(null);
@@ -254,13 +264,13 @@ function PatientView({turnos,medicos,estudios,onBook,onCancel}){
   if(modo==="medico"){
     if(step===1)return(<div><BtnBack onClick={reset}/><StepTitle n={1} total={4} label="Elegí un médico"/><div style={{display:"flex",flexDirection:"column",gap:"10px"}}>{medicos.map(m=><MedicoCard key={m.id} medico={m} selected={selMedico===m.id} estudios={estudios} onClick={()=>{setSelMedico(m.id);setSelEstudio(null);setSelFecha(null);setSelHora(null);setStep(2);}} turnos={turnos}/>)}</div></div>);
     if(step===2){const m=mMap[selMedico];return(<div><BtnBack onClick={()=>setStep(1)}/><StepTitle n={2} total={4} label="Tipo de consulta o estudio"/><div style={{display:"flex",alignItems:"center",gap:"10px",marginBottom:"16px",padding:"12px",borderRadius:"10px",background:C.mist}}><Av ini={m?.avatar||initials(m?.nombre||"")} size={36}/><div><div style={{fontWeight:700,color:C.navy,fontSize:"14px"}}>{m?.nombre}</div><div style={{fontSize:"12px",color:C.slate}}>{m?.especialidad}</div></div></div><div style={{display:"flex",flexDirection:"column",gap:"8px"}}>{(m?.estudios||[]).map(eid=>{const e=eMap[eid];return e?<button key={eid} onClick={()=>{setSelEstudio(eid);setSelFecha(null);setSelHora(null);setStep(3);}} style={{display:"flex",alignItems:"center",gap:"14px",padding:"14px",borderRadius:"12px",border:`1.5px solid ${selEstudio===eid?e.color:C.border}`,background:selEstudio===eid?e.color+"12":C.white,cursor:"pointer",textAlign:"left"}}><span style={{fontSize:"24px"}}>{e.icon}</span><div><div style={{fontWeight:600,color:C.navy,fontSize:"14px"}}>{e.label}</div><div style={{fontSize:"12px",color:C.slate}}>{e.duracion} min</div></div></button>:null;})}</div></div>);}
-    if(step===3)return<StepFechaHora medicoId={selMedico} estudioId={selEstudio} selFecha={selFecha} setSelFecha={v=>{setSelFecha(v);setSelHora(null);}} selHora={selHora} setSelHora={setSelHora} turnos={turnos} medicos={medicos} estudios={estudios} onNext={()=>setStep(4)} onBack={()=>setStep(2)} stepN={3} totalSteps={4}/>;
+    if(step===3)return<StepFechaHora medicoId={selMedico} estudioId={selEstudio} selFecha={selFecha} setSelFecha={v=>{setSelFecha(v);setSelHora(null);}} selHora={selHora} setSelHora={setSelHora} turnos={turnos} medicos={medicos} estudios={estudios} bloqueos={bloqueos} onNext={()=>setStep(4)} onBack={()=>setStep(2)} stepN={3} totalSteps={4}/>;
     if(step===4)return<StepDatos form={form} setForm={setForm} onBack={()=>setStep(3)} onConfirm={confirmar} resumen={{medico:mMap[selMedico],estudio:eMap[selEstudio],fecha:selFecha,hora:selHora}} stepN={4} totalSteps={4} saving={saving}/>;
   }
   if(modo==="estudio"){
     if(step===1)return(<div><BtnBack onClick={reset}/><StepTitle n={1} total={4} label="¿Qué estudio o consulta necesitás?"/><div style={{display:"flex",flexDirection:"column",gap:"8px"}}>{estudios.map(e=><button key={e.id} onClick={()=>{setSelEstudio(e.id);setSelMedico(null);setSelFecha(null);setSelHora(null);setStep(2);}} style={{display:"flex",alignItems:"center",gap:"14px",padding:"14px",borderRadius:"12px",border:`1.5px solid ${selEstudio===e.id?e.color:C.border}`,background:selEstudio===e.id?e.color+"12":C.white,cursor:"pointer",textAlign:"left"}}><span style={{fontSize:"26px"}}>{e.icon}</span><div><div style={{fontWeight:600,color:C.navy,fontSize:"14px"}}>{e.label}</div><div style={{fontSize:"12px",color:C.slate}}>{e.duracion} min · {medicos.filter(m=>(m.estudios||[]).includes(e.id)).length} médicos</div></div></button>)}</div></div>);
     if(step===2)return(<div><BtnBack onClick={()=>setStep(1)}/><StepTitle n={2} total={4} label="Elegí un médico"/><div style={{fontSize:"13px",color:C.slate,marginBottom:"12px",padding:"8px 12px",background:C.bluePale,borderRadius:"8px"}}>{eMap[selEstudio]?.icon} Médicos que realizan <b>{eMap[selEstudio]?.label}</b></div><div style={{display:"flex",flexDirection:"column",gap:"10px"}}>{medCon.map(m=><MedicoCard key={m.id} medico={m} selected={selMedico===m.id} estudios={estudios} onClick={()=>{setSelMedico(m.id);setSelFecha(null);setSelHora(null);setStep(3);}} turnos={turnos}/>)}</div></div>);
-    if(step===3)return<StepFechaHora medicoId={selMedico} estudioId={selEstudio} selFecha={selFecha} setSelFecha={v=>{setSelFecha(v);setSelHora(null);}} selHora={selHora} setSelHora={setSelHora} turnos={turnos} medicos={medicos} estudios={estudios} onNext={()=>setStep(4)} onBack={()=>setStep(2)} stepN={3} totalSteps={4}/>;
+    if(step===3)return<StepFechaHora medicoId={selMedico} estudioId={selEstudio} selFecha={selFecha} setSelFecha={v=>{setSelFecha(v);setSelHora(null);}} selHora={selHora} setSelHora={setSelHora} turnos={turnos} medicos={medicos} estudios={estudios} bloqueos={bloqueos} onNext={()=>setStep(4)} onBack={()=>setStep(2)} stepN={3} totalSteps={4}/>;
     if(step===4)return<StepDatos form={form} setForm={setForm} onBack={()=>setStep(3)} onConfirm={confirmar} resumen={{medico:mMap[selMedico],estudio:eMap[selEstudio],fecha:selFecha,hora:selHora}} stepN={4} totalSteps={4} saving={saving}/>;
   }
   return null;
@@ -423,8 +433,87 @@ function ModalNuevoTurno({medicos,estudios,turnos,onSave,onClose}){
   </Modal>);
 }
 
+
+// ─── PANEL DE BLOQUEOS ────────────────────────────────────────────────────────────
+function BloqueoPanel({medicos,bloqueos,setBloqueos}){
+  const[modBloqueo,setModBloqueo]=useState(false);
+  const[conf,setConf]=useState(null);
+  const mMap=Object.fromEntries(medicos.map(m=>[m.id,m]));
+  const proximos=bloqueos.filter(b=>b.fecha_hasta>=todayIso()).sort((a,b)=>a.fecha_desde.localeCompare(b.fecha_desde));
+  const pasados=bloqueos.filter(b=>b.fecha_hasta<todayIso());
+  async function eliminar(id){await dbDelete("bloqueos",id);setBloqueos(p=>p.filter(x=>x.id!==id));}
+  return(<div>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"16px"}}>
+      <div style={{fontWeight:700,color:C.navy,fontSize:"16px"}}>Bloqueos de agenda</div>
+      <Btn sm variant="danger" onClick={()=>setModBloqueo(true)}>+ Nuevo bloqueo</Btn>
+    </div>
+    {proximos.length===0&&<Card><p style={{color:C.slate,textAlign:"center",margin:0}}>No hay bloqueos activos o futuros.</p></Card>}
+    {proximos.map(b=>{
+      const m=b.medico_id?mMap[b.medico_id]:null;
+      return(<Card key={b.id} style={{marginBottom:"10px",borderLeft:`4px solid ${C.danger}`}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:"10px"}}>
+          <div>
+            <div style={{fontWeight:700,color:C.navy,fontSize:"14px"}}>{b.motivo||"Sin motivo"}</div>
+            <div style={{fontSize:"13px",color:C.slate,marginTop:"3px"}}>
+              {m?m.nombre:"Todos los médicos"} · {b.fecha_desde===b.fecha_hasta?formatDate(b.fecha_desde):`${formatDate(b.fecha_desde)} al ${formatDate(b.fecha_hasta)}`}
+            </div>
+            {b.tipo==="horario"&&b.hora_desde&&<div style={{fontSize:"12px",color:C.slate}}>Horario: {b.hora_desde} a {b.hora_hasta}</div>}
+            <span style={{fontSize:"11px",padding:"2px 8px",borderRadius:"99px",background:b.tipo==="dia_completo"?C.dangerPale:C.warnPale,color:b.tipo==="dia_completo"?C.danger:C.warn,fontWeight:600,marginTop:"4px",display:"inline-block"}}>
+              {b.tipo==="dia_completo"?"Día completo":"Horario específico"}
+            </span>
+          </div>
+          <Btn sm variant="danger" onClick={()=>setConf(b.id)}>Quitar</Btn>
+        </div>
+      </Card>);
+    })}
+    {pasados.length>0&&<div style={{marginTop:"16px"}}><div style={{fontSize:"12px",fontWeight:700,color:C.slate,marginBottom:"8px",textTransform:"uppercase",letterSpacing:"0.5px"}}>Bloqueos pasados</div>{pasados.map(b=>{const m=b.medico_id?mMap[b.medico_id]:null;return(<Card key={b.id} style={{marginBottom:"8px",opacity:0.55}}><div style={{fontSize:"13px",color:C.slate}}>{m?m.nombre:"Todos"} · {formatDate(b.fecha_desde)}{b.fecha_desde!==b.fecha_hasta?` al ${formatDate(b.fecha_hasta)}`:""} · {b.motivo||"Sin motivo"}</div></Card>);})}</div>}
+    {modBloqueo&&<ModalBloqueo medicos={medicos} onSave={async b=>{const nuevo={...b,id:genId("blq")};await dbInsert("bloqueos",nuevo);setBloqueos(p=>[...p,nuevo]);setModBloqueo(false);setBloqueos(await dbGetBloqueos());}} onClose={()=>setModBloqueo(false)}/>}
+    {conf&&<Modal title="Confirmar" onClose={()=>setConf(null)}><p style={{color:C.navy,marginTop:0}}>¿Querés eliminar este bloqueo?</p><div style={{display:"flex",gap:"10px",justifyContent:"flex-end"}}><Btn variant="ghost" onClick={()=>setConf(null)}>Cancelar</Btn><Btn variant="danger" onClick={async()=>{await eliminar(conf);setConf(null);}}>Sí, quitar</Btn></div></Modal>}
+  </div>);
+}
+
+function ModalBloqueo({medicos,onSave,onClose}){
+  const[tipo,setTipo]=useState("dia_completo");
+  const[medicoId,setMedicoId]=useState("");
+  const[fechaDesde,setFechaDesde]=useState(todayIso());
+  const[fechaHasta,setFechaHasta]=useState(todayIso());
+  const[horaDesde,setHoraDesde]=useState("08:00");
+  const[horaHasta,setHoraHasta]=useState("12:00");
+  const[motivo,setMotivo]=useState("");
+  const[saving,setSaving]=useState(false);
+  const ok=fechaDesde&&fechaHasta&&fechaHasta>=fechaDesde;
+  async function handleSave(){setSaving(true);await onSave({medico_id:medicoId||null,tipo,fecha_desde:fechaDesde,fecha_hasta:fechaHasta,hora_desde:tipo==="horario"?horaDesde:null,hora_hasta:tipo==="horario"?horaHasta:null,motivo});setSaving(false);}
+  return(<Modal title="Nuevo bloqueo" onClose={onClose}>
+    <div style={{display:"flex",gap:"8px",marginBottom:"18px"}}>
+      {[["dia_completo","📅 Día completo"],["horario","🕐 Horario específico"]].map(([v,l])=>(
+        <button key={v} onClick={()=>setTipo(v)} style={{flex:1,padding:"10px",borderRadius:"10px",border:`1.5px solid ${tipo===v?C.danger:C.border}`,background:tipo===v?C.dangerPale:C.white,color:tipo===v?C.danger:C.slate,fontWeight:600,fontSize:"13px",cursor:"pointer"}}>{l}</button>
+      ))}
+    </div>
+    <div style={{marginBottom:"14px"}}>
+      <div style={{fontSize:"12px",fontWeight:700,color:C.slate,marginBottom:"6px",textTransform:"uppercase",letterSpacing:"0.5px"}}>Médico afectado</div>
+      <select value={medicoId} onChange={e=>setMedicoId(e.target.value)} style={{width:"100%",padding:"10px 13px",borderRadius:"9px",border:`1.5px solid ${C.border}`,fontSize:"15px",color:C.navy,background:C.white}}>
+        <option value="">Todos los médicos</option>
+        {medicos.map(m=><option key={m.id} value={m.id}>{m.nombre}</option>)}
+      </select>
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px",marginBottom:"14px"}}>
+      <div><div style={{fontSize:"12px",fontWeight:700,color:C.slate,marginBottom:"6px",textTransform:"uppercase",letterSpacing:"0.5px"}}>Desde *</div><input type="date" value={fechaDesde} onChange={e=>{setFechaDesde(e.target.value);if(e.target.value>fechaHasta)setFechaHasta(e.target.value);}} style={{width:"100%",padding:"10px 13px",borderRadius:"9px",border:`1.5px solid ${C.border}`,fontSize:"15px",color:C.navy,boxSizing:"border-box"}}/></div>
+      <div><div style={{fontSize:"12px",fontWeight:700,color:C.slate,marginBottom:"6px",textTransform:"uppercase",letterSpacing:"0.5px"}}>Hasta *</div><input type="date" value={fechaHasta} onChange={e=>setFechaHasta(e.target.value)} min={fechaDesde} style={{width:"100%",padding:"10px 13px",borderRadius:"9px",border:`1.5px solid ${C.border}`,fontSize:"15px",color:C.navy,boxSizing:"border-box"}}/></div>
+    </div>
+    {tipo==="horario"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px",marginBottom:"14px"}}>
+      <div><div style={{fontSize:"12px",fontWeight:700,color:C.slate,marginBottom:"6px",textTransform:"uppercase",letterSpacing:"0.5px"}}>Hora desde</div><input type="time" value={horaDesde} onChange={e=>setHoraDesde(e.target.value)} style={{width:"100%",padding:"10px 13px",borderRadius:"9px",border:`1.5px solid ${C.border}`,fontSize:"15px",color:C.navy,boxSizing:"border-box"}}/></div>
+      <div><div style={{fontSize:"12px",fontWeight:700,color:C.slate,marginBottom:"6px",textTransform:"uppercase",letterSpacing:"0.5px"}}>Hora hasta</div><input type="time" value={horaHasta} onChange={e=>setHoraHasta(e.target.value)} style={{width:"100%",padding:"10px 13px",borderRadius:"9px",border:`1.5px solid ${C.border}`,fontSize:"15px",color:C.navy,boxSizing:"border-box"}}/></div>
+    </div>}
+    <Fld label="Motivo" value={motivo} onChange={setMotivo} placeholder="Ej: Vacaciones, Feriado, Congreso..."/>
+    <div style={{display:"flex",gap:"10px",justifyContent:"flex-end",marginTop:"8px"}}>
+      <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+      <Btn disabled={!ok||saving} onClick={handleSave}>{saving?"Guardando...":"Crear bloqueo"}</Btn>
+    </div>
+  </Modal>);
+}
+
 // ─── ADMIN VIEW ───────────────────────────────────────────────────────────────────
-function AdminView({turnos,medicos,estudios,onCancel,onUpdateMedico,onUpdateEstudio,onBook}){
+function AdminView({turnos,medicos,estudios,bloqueos=[],setBloqueos,onCancel,onUpdateMedico,onUpdateEstudio,onBook}){
   const[tab,setTab]=useState("agenda");const[va,setVa]=useState("dia");const[selFecha,setSelFecha]=useState(todayIso());const[filtr,setFiltr]=useState("todos");
   const[modalNuevoTurno,setModalNuevoTurno]=useState(false);
   const eMap=Object.fromEntries(estudios.map(e=>[e.id,e]));const mMap=Object.fromEntries(medicos.map(m=>[m.id,m]));
@@ -433,7 +522,7 @@ function AdminView({turnos,medicos,estudios,onCancel,onUpdateMedico,onUpdateEstu
   const stats={hoy:turnos.filter(t=>t.fecha===todayIso()&&t.estado!=="cancelado").length,semana:turnos.filter(t=>{const d=new Date(t.fecha+"T12:00:00");const h=new Date();const ini=new Date(h);ini.setDate(h.getDate()-h.getDay());const fin=new Date(ini);fin.setDate(ini.getDate()+6);return d>=ini&&d<=fin&&t.estado!=="cancelado";}).length,total:turnos.filter(t=>t.estado!=="cancelado").length};
   return(<div>
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"10px",marginBottom:"18px"}}>{[["Hoy",stats.hoy],["Semana",stats.semana],["Total",stats.total]].map(([l,v])=><Card key={l} style={{textAlign:"center",padding:"14px"}}><div style={{fontSize:"26px",fontWeight:800,color:C.blue}}>{v}</div><div style={{fontSize:"11px",color:C.slate,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.4px"}}>{l}</div></Card>)}</div>
-    <div style={{display:"flex",gap:"8px",marginBottom:"16px",overflowX:"auto",paddingBottom:"2px"}}>{[["agenda","📅 Agenda"],["config","⚙️ Configuración"]].map(([v,l])=><button key={v} onClick={()=>setTab(v)} style={{padding:"8px 16px",borderRadius:"9px",border:"1.5px solid",whiteSpace:"nowrap",borderColor:tab===v?C.blue:C.border,background:tab===v?C.bluePale:C.white,color:tab===v?C.blue:C.slate,fontWeight:600,fontSize:"14px",cursor:"pointer"}}>{l}</button>)}</div>
+    <div style={{display:"flex",gap:"8px",marginBottom:"16px",overflowX:"auto",paddingBottom:"2px"}}>{[["agenda","📅 Agenda"],["bloqueos","🔒 Bloqueos"],["config","⚙️ Configuración"]].map(([v,l])=><button key={v} onClick={()=>setTab(v)} style={{padding:"8px 16px",borderRadius:"9px",border:"1.5px solid",whiteSpace:"nowrap",borderColor:tab===v?C.blue:C.border,background:tab===v?C.bluePale:C.white,color:tab===v?C.blue:C.slate,fontWeight:600,fontSize:"14px",cursor:"pointer"}}>{l}</button>)}</div>
     {tab==="agenda"&&<>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"14px",gap:"8px",flexWrap:"wrap"}}><div style={{overflowX:"auto",display:"flex",gap:"8px",paddingBottom:"4px"}}><Chip active={filtr==="todos"} onClick={()=>setFiltr("todos")}>Todos</Chip>{medicos.map(m=><Chip key={m.id} active={filtr===m.id} onClick={()=>setFiltr(m.id)} color={C.blue}>{m.avatar||initials(m.nombre)}</Chip>)}</div><Btn sm variant="success" onClick={()=>setModalNuevoTurno(true)}>+ Nuevo turno</Btn></div>
       <div style={{display:"flex",gap:"8px",marginBottom:"16px"}}>{[["dia","Vista diaria"],["proximos","Próximos"]].map(([v,l])=><button key={v} onClick={()=>setVa(v)} style={{padding:"8px 16px",borderRadius:"9px",border:"1.5px solid",borderColor:va===v?C.blue:C.border,background:va===v?C.bluePale:C.white,color:va===v?C.blue:C.slate,fontWeight:600,fontSize:"14px",cursor:"pointer"}}>{l}</button>)}</div>
@@ -441,6 +530,7 @@ function AdminView({turnos,medicos,estudios,onCancel,onUpdateMedico,onUpdateEstu
       {va==="proximos"&&<><div style={{fontWeight:700,color:C.navy,marginBottom:"10px"}}>Próximos turnos</div>{proximos.length===0?<Card><p style={{color:C.slate,textAlign:"center",margin:0}}>No hay turnos próximos.</p></Card>:proximos.map(t=><TurnoCard key={t.id} turno={t} onCancel={onCancel} eMap={eMap} mMap={mMap} showFecha/>)}</>}
     </>}
     {tab==="config"&&<ConfigPanel medicos={medicos} estudios={estudios} onUpdateMedicos={onUpdateMedico} onUpdateEstudios={onUpdateEstudio}/>}
+    {tab==="bloqueos"&&<BloqueoPanel medicos={medicos} bloqueos={bloqueos} setBloqueos={setBloqueos}/>}
     {modalNuevoTurno&&<ModalNuevoTurno medicos={medicos} estudios={estudios} turnos={turnos} onSave={async t=>{await onBook(t);setModalNuevoTurno(false);}} onClose={()=>setModalNuevoTurno(false)}/>}
   </div>);
 }
@@ -457,6 +547,7 @@ export default function App(){
   const[medicos,setMedicos]=useState([]);
   const[estudios,setEstudios]=useState([]);
   const[turnos,setTurnos]=useState([]);
+  const[bloqueos,setBloqueos]=useState([]);
   const[loading,setLoading]=useState(true);
   const[vista,setVista]=useState("paciente");
   const[authed,setAuthed]=useState(false);
@@ -465,11 +556,13 @@ export default function App(){
   // ── Cargar datos desde Supabase ──
   const cargarDatos = useCallback(async()=>{
     try{
-      const[estDs,medDs,turDs]=await Promise.all([
+      const[estDs,medDs,turDs,bloqDs]=await Promise.all([
         dbGet("estudios","order=orden"),
         dbGet("medicos","order=nombre"),
         dbGet("turnos","order=fecha,hora&estado=neq.cancelado&fecha=gte."+todayIso()),
+        dbGetBloqueos(),
       ]);
+      setBloqueos(bloqDs);
       // Si no hay datos, sembrar con los datos iniciales
       if(estDs.length===0){ await Promise.all(ESTUDIOS_SEED.map(e=>dbInsert("estudios",e))); const fresh=await dbGet("estudios","order=orden"); setEstudios(fresh); }
       else setEstudios(estDs);
@@ -484,9 +577,16 @@ export default function App(){
 
   // ── Turnos ──
   async function handleBook(t){
-    await dbInsert("turnos",t);
-    setTurnos(p=>[...p,t]);
-    setToast({msg:"✅ Turno reservado",type:"success"});
+    try{
+      await dbInsert("turnos",t);
+      setTurnos(p=>[...p,t]);
+      setToast({msg:"✅ Turno reservado",type:"success"});
+    }catch(e){
+      if(e.message.includes("turnos_unico")||e.message.includes("unique")){
+        throw new Error("ese horario ya fue tomado");
+      }
+      throw e;
+    }
   }
   async function handleCancel(id){
     await dbUpdate("turnos",id,{estado:"cancelado"});
@@ -524,3 +624,4 @@ export default function App(){
     {toast&&<Toast msg={toast.msg} type={toast.type} onClose={()=>setToast(null)}/>}
   </div>);
 }
+
