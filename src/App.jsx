@@ -43,7 +43,7 @@ const MEDICOS_SEED = [
 ];
 
 // ─── CONSTANTES ──────────────────────────────────────────────────────────────────
-const PASSWORD_CONSULTORIO = "puntomed2024";
+const PASSWORD_CONSULTORIO = import.meta.env.VITE_PASSWORD_CONSULTORIO || "puntomed2024";
 const MONTH_NAMES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 const DAY_LABELS  = ["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"];
 const DAY_NAMES   = ["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
