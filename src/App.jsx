@@ -482,7 +482,7 @@ function ModalBloqueo({medicos,onSave,onClose}){
   const[motivo,setMotivo]=useState("");
   const[saving,setSaving]=useState(false);
   const ok=fechaDesde&&fechaHasta&&fechaHasta>=fechaDesde;
-  async function handleSave(){setSaving(true);await onSave({medico_id:medicoId||null,tipo,fecha_desde:fechaDesde,fecha_hasta:fechaHasta,hora_desde:tipo==="horario"?horaDesde:null,hora_hasta:tipo==="horario"?horaHasta:null,motivo});setSaving(false);}
+  async function handleSave(){setSaving(true);await onSave({medico_id:medicoId||null,tipo,fecha_desde:fechaDesde,fecha_hasta:fechaHasta,
   return(<Modal title="Nuevo bloqueo" onClose={onClose}>
     <div style={{display:"flex",gap:"8px",marginBottom:"18px"}}>
       {[["dia_completo","📅 Día completo"],["horario","🕐 Horario específico"]].map(([v,l])=>(
