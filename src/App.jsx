@@ -352,9 +352,81 @@ function ConfigPanel({medicos,estudios,onUpdateMedicos,onUpdateEstudios}){
   </div>);
 }
 
+// ─── MODAL NUEVO TURNO ────────────────────────────────────────────────────────────
+function ModalNuevoTurno({medicos,estudios,turnos,onSave,onClose}){
+  const[selMedico,setSelMedico]=useState(medicos[0]?.id||"");
+  const[selEstudio,setSelEstudio]=useState("");
+  const[fecha,setFecha]=useState(todayIso());
+  const[hora,setHora]=useState("");
+  const[horaExtra,setHoraExtra]=useState("09:00");
+  const[esExtra,setEsExtra]=useState(false);
+  const[tipo,setTipo]=useState("presencial");
+  const[form,setForm]=useState({nombre:"",dni:"",telefono:"",email:""});
+  const[saving,setSaving]=useState(false);
+  const mMap=Object.fromEntries(medicos.map(m=>[m.id,m]));
+  const medico=mMap[selMedico];
+  const estudiosDelMedico=estudios.filter(e=>(medico?.estudios||[]).includes(e.id));
+  const dow=dayOfWeek(fecha);
+  const slotsNormales=medico?.horario?.[dow]||[];
+  const ocupados=turnos.filter(t=>t.medico_id===selMedico&&t.fecha===fecha&&t.estado!=="cancelado").map(t=>t.hora);
+  const slotsLibres=slotsNormales.filter(h=>!ocupados.includes(h));
+  function cambiarMedico(id){setSelMedico(id);setSelEstudio("");setHora("");}
+  const horaFinal=esExtra?horaExtra:hora;
+  const ok=selMedico&&selEstudio&&fecha&&horaFinal&&form.nombre&&form.dni&&form.telefono;
+  async function handleSave(){setSaving(true);await onSave({id:genId("t"),medico_id:selMedico,estudio_id:selEstudio,fecha,hora:horaFinal,estado:"confirmado",tipo_origen:tipo,...form});setSaving(false);}
+  return(<Modal title="Nuevo turno" onClose={onClose}>
+    <div style={{display:"flex",gap:"8px",marginBottom:"18px"}}>
+      {[["presencial","🏥 Presencial"],["extra","⚡ Turno extra"]].map(([v,l])=>(
+        <button key={v} onClick={()=>setTipo(v)} style={{flex:1,padding:"10px",borderRadius:"10px",border:`1.5px solid ${tipo===v?C.blue:C.border}`,background:tipo===v?C.bluePale:C.white,color:tipo===v?C.blue:C.slate,fontWeight:600,fontSize:"13px",cursor:"pointer"}}>{l}</button>
+      ))}
+    </div>
+    {tipo==="extra"&&<div style={{fontSize:"13px",color:C.warn,background:C.warnPale,padding:"8px 12px",borderRadius:"8px",marginBottom:"14px"}}>⚡ Podés elegir cualquier fecha y horario, incluso fuera del habitual.</div>}
+    <div style={{marginBottom:"14px"}}>
+      <div style={{fontSize:"12px",fontWeight:700,color:C.slate,marginBottom:"6px",textTransform:"uppercase",letterSpacing:"0.5px"}}>Médico *</div>
+      <select value={selMedico} onChange={e=>cambiarMedico(e.target.value)} style={{width:"100%",padding:"10px 13px",borderRadius:"9px",border:`1.5px solid ${C.border}`,fontSize:"15px",color:C.navy,background:C.white}}>
+        {medicos.map(m=><option key={m.id} value={m.id}>{m.nombre}</option>)}
+      </select>
+    </div>
+    <div style={{marginBottom:"14px"}}>
+      <div style={{fontSize:"12px",fontWeight:700,color:C.slate,marginBottom:"6px",textTransform:"uppercase",letterSpacing:"0.5px"}}>Estudio o consulta *</div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:"6px"}}>{estudiosDelMedico.map(e=><button key={e.id} onClick={()=>setSelEstudio(e.id)} style={{padding:"6px 12px",borderRadius:"99px",border:`1.5px solid ${selEstudio===e.id?e.color:C.border}`,background:selEstudio===e.id?e.color+"18":C.white,color:selEstudio===e.id?e.color:C.slate,fontWeight:600,fontSize:"13px",cursor:"pointer"}}>{e.icon} {e.label}</button>)}</div>
+    </div>
+    <div style={{marginBottom:"14px"}}>
+      <div style={{fontSize:"12px",fontWeight:700,color:C.slate,marginBottom:"6px",textTransform:"uppercase",letterSpacing:"0.5px"}}>Fecha *</div>
+      <input type="date" value={fecha} onChange={e=>{setFecha(e.target.value);setHora("");}} style={{width:"100%",padding:"10px 13px",borderRadius:"9px",border:`1.5px solid ${C.border}`,fontSize:"15px",color:C.navy,boxSizing:"border-box"}}/>
+    </div>
+    <div style={{marginBottom:"18px"}}>
+      <div style={{fontSize:"12px",fontWeight:700,color:C.slate,marginBottom:"6px",textTransform:"uppercase",letterSpacing:"0.5px"}}>Horario *</div>
+      {tipo==="presencial"?(
+        slotsLibres.length>0?(<>
+          <div style={{display:"flex",flexWrap:"wrap",gap:"8px",marginBottom:"8px"}}>{slotsLibres.map(h=><button key={h} onClick={()=>{setHora(h);setEsExtra(false);}} style={{padding:"7px 13px",borderRadius:"9px",border:"1.5px solid",borderColor:hora===h&&!esExtra?C.blue:"#CBD5E1",background:hora===h&&!esExtra?C.blue:C.white,color:hora===h&&!esExtra?"#fff":C.navy,fontWeight:hora===h&&!esExtra?700:400,fontSize:"14px",cursor:"pointer"}}>{h}</button>)}</div>
+          <button onClick={()=>setEsExtra(true)} style={{fontSize:"13px",color:C.warn,background:"none",border:"none",cursor:"pointer",padding:0,fontWeight:600}}>+ Agregar horario fuera del habitual</button>
+          {esExtra&&<input type="time" value={horaExtra} onChange={e=>setHoraExtra(e.target.value)} style={{marginTop:"8px",width:"100%",padding:"10px 13px",borderRadius:"9px",border:`1.5px solid ${C.warn}`,fontSize:"15px",color:C.navy,boxSizing:"border-box"}}/>}
+        </>):(
+          <><p style={{color:C.slate,fontSize:"13px",margin:"0 0 8px"}}>Sin turnos disponibles este día. Ingresá un horario:</p><input type="time" value={horaExtra} onChange={e=>{setHoraExtra(e.target.value);setEsExtra(true);}} style={{width:"100%",padding:"10px 13px",borderRadius:"9px",border:`1.5px solid ${C.warn}`,fontSize:"15px",color:C.navy,boxSizing:"border-box"}}/></>
+        )
+      ):(
+        <input type="time" value={horaExtra} onChange={e=>{setHoraExtra(e.target.value);setEsExtra(true);}} style={{width:"100%",padding:"10px 13px",borderRadius:"9px",border:`1.5px solid ${C.border}`,fontSize:"15px",color:C.navy,boxSizing:"border-box"}}/>
+      )}
+    </div>
+    <div style={{borderTop:`1px solid ${C.border}`,paddingTop:"16px",marginBottom:"4px"}}>
+      <div style={{fontSize:"12px",fontWeight:700,color:C.slate,marginBottom:"12px",textTransform:"uppercase",letterSpacing:"0.5px"}}>Datos del paciente</div>
+      <Fld label="Nombre y apellido" value={form.nombre} onChange={v=>setForm(f=>({...f,nombre:v}))} required placeholder="Ej: María García"/>
+      <Fld label="DNI" value={form.dni} onChange={v=>setForm(f=>({...f,dni:v}))} required placeholder="Ej: 32145678"/>
+      <Fld label="Teléfono / WhatsApp" value={form.telefono} onChange={v=>setForm(f=>({...f,telefono:v}))} required placeholder="Ej: 11-1234-5678"/>
+      <Fld label="Email" type="email" value={form.email} onChange={v=>setForm(f=>({...f,email:v}))} placeholder="Opcional"/>
+    </div>
+    <div style={{display:"flex",gap:"10px",justifyContent:"flex-end",marginTop:"8px"}}>
+      <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+      <Btn disabled={!ok||saving} onClick={handleSave}>{saving?"Guardando...":"Confirmar turno"}</Btn>
+    </div>
+  </Modal>);
+}
+
 // ─── ADMIN VIEW ───────────────────────────────────────────────────────────────────
-function AdminView({turnos,medicos,estudios,onCancel,onUpdateMedico,onUpdateEstudio}){
+function AdminView({turnos,medicos,estudios,onCancel,onUpdateMedico,onUpdateEstudio,onBook}){
   const[tab,setTab]=useState("agenda");const[va,setVa]=useState("dia");const[selFecha,setSelFecha]=useState(todayIso());const[filtr,setFiltr]=useState("todos");
+  const[modalNuevoTurno,setModalNuevoTurno]=useState(false);
   const eMap=Object.fromEntries(estudios.map(e=>[e.id,e]));const mMap=Object.fromEntries(medicos.map(m=>[m.id,m]));
   const turnosDia=turnos.filter(t=>t.fecha===selFecha&&(filtr==="todos"||t.medico_id===filtr)).sort((a,b)=>a.hora.localeCompare(b.hora));
   const proximos=turnos.filter(t=>t.fecha>=todayIso()&&t.estado!=="cancelado"&&(filtr==="todos"||t.medico_id===filtr)).sort((a,b)=>a.fecha===b.fecha?a.hora.localeCompare(b.hora):a.fecha.localeCompare(b.fecha)).slice(0,30);
@@ -363,12 +435,13 @@ function AdminView({turnos,medicos,estudios,onCancel,onUpdateMedico,onUpdateEstu
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"10px",marginBottom:"18px"}}>{[["Hoy",stats.hoy],["Semana",stats.semana],["Total",stats.total]].map(([l,v])=><Card key={l} style={{textAlign:"center",padding:"14px"}}><div style={{fontSize:"26px",fontWeight:800,color:C.blue}}>{v}</div><div style={{fontSize:"11px",color:C.slate,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.4px"}}>{l}</div></Card>)}</div>
     <div style={{display:"flex",gap:"8px",marginBottom:"16px",overflowX:"auto",paddingBottom:"2px"}}>{[["agenda","📅 Agenda"],["config","⚙️ Configuración"]].map(([v,l])=><button key={v} onClick={()=>setTab(v)} style={{padding:"8px 16px",borderRadius:"9px",border:"1.5px solid",whiteSpace:"nowrap",borderColor:tab===v?C.blue:C.border,background:tab===v?C.bluePale:C.white,color:tab===v?C.blue:C.slate,fontWeight:600,fontSize:"14px",cursor:"pointer"}}>{l}</button>)}</div>
     {tab==="agenda"&&<>
-      <div style={{overflowX:"auto",display:"flex",gap:"8px",paddingBottom:"4px",marginBottom:"14px"}}><Chip active={filtr==="todos"} onClick={()=>setFiltr("todos")}>Todos</Chip>{medicos.map(m=><Chip key={m.id} active={filtr===m.id} onClick={()=>setFiltr(m.id)} color={C.blue}>{m.avatar||initials(m.nombre)}</Chip>)}</div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"14px",gap:"8px",flexWrap:"wrap"}}><div style={{overflowX:"auto",display:"flex",gap:"8px",paddingBottom:"4px"}}><Chip active={filtr==="todos"} onClick={()=>setFiltr("todos")}>Todos</Chip>{medicos.map(m=><Chip key={m.id} active={filtr===m.id} onClick={()=>setFiltr(m.id)} color={C.blue}>{m.avatar||initials(m.nombre)}</Chip>)}</div><Btn sm variant="success" onClick={()=>setModalNuevoTurno(true)}>+ Nuevo turno</Btn></div>
       <div style={{display:"flex",gap:"8px",marginBottom:"16px"}}>{[["dia","Vista diaria"],["proximos","Próximos"]].map(([v,l])=><button key={v} onClick={()=>setVa(v)} style={{padding:"8px 16px",borderRadius:"9px",border:"1.5px solid",borderColor:va===v?C.blue:C.border,background:va===v?C.bluePale:C.white,color:va===v?C.blue:C.slate,fontWeight:600,fontSize:"14px",cursor:"pointer"}}>{l}</button>)}</div>
       {va==="dia"&&<><Card style={{marginBottom:"14px"}}><MiniCalendar selected={selFecha} onSelect={setSelFecha} turnos={turnos} medicoId={filtr==="todos"?null:filtr} adminMode/></Card><div style={{fontWeight:700,color:C.navy,marginBottom:"10px",fontSize:"15px"}}>{formatDate(selFecha)} <span style={{fontSize:"13px",fontWeight:400,color:C.slate}}>{turnosDia.filter(t=>t.estado!=="cancelado").length} activos</span></div>{turnosDia.length===0?<Card><p style={{color:C.slate,textAlign:"center",margin:0}}>Sin turnos este día.</p></Card>:turnosDia.map(t=><TurnoCard key={t.id} turno={t} onCancel={onCancel} eMap={eMap} mMap={mMap}/>)}</>}
       {va==="proximos"&&<><div style={{fontWeight:700,color:C.navy,marginBottom:"10px"}}>Próximos turnos</div>{proximos.length===0?<Card><p style={{color:C.slate,textAlign:"center",margin:0}}>No hay turnos próximos.</p></Card>:proximos.map(t=><TurnoCard key={t.id} turno={t} onCancel={onCancel} eMap={eMap} mMap={mMap} showFecha/>)}</>}
     </>}
     {tab==="config"&&<ConfigPanel medicos={medicos} estudios={estudios} onUpdateMedicos={onUpdateMedico} onUpdateEstudios={onUpdateEstudio}/>}
+    {modalNuevoTurno&&<ModalNuevoTurno medicos={medicos} estudios={estudios} turnos={turnos} onSave={async t=>{await onBook(t);setModalNuevoTurno(false);}} onClose={()=>setModalNuevoTurno(false)}/>}
   </div>);
 }
 
@@ -446,7 +519,7 @@ export default function App(){
     </div>
     <div style={{maxWidth:680,margin:"0 auto",padding:"20px 16px 60px"}}>
       {vista==="paciente"&&<PatientView turnos={turnos} medicos={medicos} estudios={estudios} onBook={handleBook} onCancel={handleCancel}/>}
-      {vista==="consultorio"&&(authed?<AdminView turnos={turnos} medicos={medicos} estudios={estudios} onCancel={handleCancel} onUpdateMedico={handleUpdateMedico} onUpdateEstudio={handleUpdateEstudio}/>:<LoginConsultorio onLogin={()=>setAuthed(true)}/>)}
+      {vista==="consultorio"&&(authed?<AdminView turnos={turnos} medicos={medicos} estudios={estudios} onCancel={handleCancel} onUpdateMedico={handleUpdateMedico} onUpdateEstudio={handleUpdateEstudio} onBook={handleBook}/>:<LoginConsultorio onLogin={()=>setAuthed(true)}/>)}
     </div>
     {toast&&<Toast msg={toast.msg} type={toast.type} onClose={()=>setToast(null)}/>}
   </div>);
